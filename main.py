@@ -2,12 +2,60 @@ import sys
 import random
 import sqlite3
 import socket
+import uuid
 from PySide6.QtWidgets import QApplication, QWidget, QLineEdit, QHBoxLayout, QVBoxLayout, QMainWindow, QPushButton, QMessageBox, QLabel, QScrollArea, QDialog
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from datetime import datetime
 
 conn = sqlite3.connect("messages.db")
 cursor = conn.cursor()
+
+user_conn = sqlite3.connect("user_info.db")
+user_cursor = user_conn.cursor()
+
+class IdentityWindow(QDialog):
+    def __init__(self):
+        super().__init__()
+
+        self.username = None
+
+    def create_identity_window(self):
+        self.setWindowTitle("Add contact")
+        layout = QVBoxLayout(self)
+
+        layout.addStretch()
+        layout.addWidget(QLabel("Enter your temporary username"))
+        self.input_box = QLineEdit()
+        layout.addWidget(self.input_box)
+
+        self.show()
+
+        self.input_box.returnPressed.connect(self.sumbit_username)
+
+
+    def sumbit_username(self):
+        self.username = self.input_box.text()
+        if self.username.isspace() or len(self.username) <= 0:
+            return
+        else:
+
+            self.accept()
+            print(self.username)
+
+    def save_user_id(self, username, user_id):
+        user_cursor.execute(
+            "INSERT INTO user_info (username, user_id) VALUES (?, ?)",
+            (username, user_id)
+        )
+        user_conn.commit()
+
+    def generate_uuid(self):
+        self.user_id = str(uuid.uuid4())
+        return self.user_id
+
+
+
+
 
 class ReceiverThread(QThread):
     message_received = Signal(str)
@@ -48,8 +96,11 @@ class Message:
 
 class MainWindow(QMainWindow):
 
-    def __init__(self):
+    def __init__(self, username, user_id):
         super().__init__()
+
+        self.username = username
+        self.user_id = user_id
 
         self.setWindowTitle("Private messenger")
         self.resize(700,500)
@@ -181,7 +232,7 @@ class MainWindow(QMainWindow):
         
         message_text = self.text_input.text() # message text
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        new_message = Message(message_text, "me", timestamp)
+        new_message = Message(message_text, self.username, timestamp)
 
         if new_message.text.isspace() or len(new_message.text) <= 0 or self.current_chat_id == None: # rejects any message that is only spaces or has nothing in it to be sent or theres no chat id
             return
@@ -305,7 +356,7 @@ class MainWindow(QMainWindow):
 
         received_message = Message(
             message,
-            "other",
+            "server",
             timestamp
         )
 
@@ -329,7 +380,38 @@ class MainWindow(QMainWindow):
         
 
 app = QApplication()
-window = MainWindow()
+
+user_cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_info (
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL
+    )
+""")
+
+user_conn.commit()
+
+user_cursor.execute(
+    "SELECT user_id, username FROM user_info LIMIT 1"
+)
+
+user = user_cursor.fetchone()
+
+if user:
+    user_id, username = user
+else:
+
+    identity_window = IdentityWindow()
+    identity_window.create_identity_window()
+
+    if identity_window.exec() == QDialog.Accepted:
+        username = identity_window.username
+        user_id = identity_window.generate_uuid()
+
+        identity_window.save_user_id(username, user_id)
+    else:
+        sys.exit()
+
+window = MainWindow(username, user_id)
 window.show()
 
 app.exec()
