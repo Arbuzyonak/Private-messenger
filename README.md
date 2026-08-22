@@ -8,7 +8,7 @@ This is a messenger that you can use on your own local network.
 
 # How to make it work?
 
-Launch the server and have at least two instances of the client running then on each client add the other's username.
+Launch the server and have at least two instances of the client running then on each client add the other's username. Instead of my machine's local ip adress put in your's.
 
 # Showcase
 <img width="219" height="126" alt="Screenshot_20260821_230321" src="https://github.com/user-attachments/assets/a3c0f855-0b22-407c-a18a-dac5a16fdd3a" />
