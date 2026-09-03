@@ -1,18 +1,55 @@
 import socket
 import threading
 import json
+import sys
+
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
 
 
 HEADER = 64
 PORT = 5050
-SERVER = "192.168.0.12"
-ADDR = (SERVER, PORT)
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind(ADDR)
+
+def get_local_ips():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return [ip]
+    except OSError:
+        return []
+
+
+def ask_bind_address():
+    while True:
+        detected = get_local_ips()
+
+        if detected:
+            print(f"Your IP: {', '.join(detected)}")
+        else:
+            print("Could not detect your IP")
+
+        ip = input("IP to listen on [Enter = 0.0.0.0, all interfaces]: ").strip() or "0.0.0.0"
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        try:
+            sock.bind((ip, PORT))
+        except OSError as e:
+            print(f"Can't listen on {ip}: {e}\n")
+            sock.close()
+            continue
+
+        return sock
+
+
+server = ask_bind_address()
 
 clients = {}
 clients_lock = threading.Lock()
@@ -173,14 +210,78 @@ def handle_client(conn, addr):
 
 
 
-def start():
-    server.listen()
-    print(f"Listenting on {SERVER}")
+def accept_loop():
     while True:
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        print(f"Active connections: {threading.active_count() - 1}")
+        print(f"Active connections: {threading.active_count() - 2}")
+
+
+def show_server_window(display_ip):
+    app = QApplication(sys.argv)
+
+    window = QWidget()
+    window.setWindowTitle("Messenger Server")
+    window.resize(350, 200)
+
+    layout = QVBoxLayout(window)
+    layout.addStretch()
+
+    title = QLabel("Server running!")
+    title.setFont(QFont("", 16))
+    title.setAlignment(Qt.AlignCenter)
+    layout.addWidget(title)
+
+    tell = QLabel("Tell clients to connect to:")
+    tell.setAlignment(Qt.AlignCenter)
+    layout.addWidget(tell)
+
+    ip_label = QLabel(f"{display_ip}:{PORT}")
+    ip_label.setFont(QFont("", 22))
+    ip_label.setAlignment(Qt.AlignCenter)
+    layout.addWidget(ip_label)
+
+    status = QLabel("Connected: nobody yet")
+    status.setAlignment(Qt.AlignCenter)
+    layout.addWidget(status)
+
+    def update_status():
+        with clients_lock:
+            names = ", ".join(c["username"] for c in clients.values())
+
+        if names:
+            status.setText(f"Connected: {names}")
+        else:
+            status.setText("Connected: nobody yet")
+
+    timer = QTimer()
+    timer.timeout.connect(update_status)
+    timer.start(1000)
+
+    layout.addStretch()
+    window.show()
+    app.exec()
+    print("Server window closed - shutting down.")
+
+
+def start():
+    server.listen()
+
+    bound_ip = server.getsockname()[0]
+    detected = get_local_ips()
+    display_ip = bound_ip if bound_ip != "0.0.0.0" else (detected[0] if detected else "0.0.0.0")
+
+    print(f"Listening on {display_ip}:{PORT} (give this IP to clients)")
+
+    accept_thread = threading.Thread(target=accept_loop, daemon=True)
+    accept_thread.start()
+
+    try:
+        show_server_window(display_ip)
+    except (OSError, RuntimeError):
+        print("No display available - running in console only. Ctrl+C to stop.")
+        accept_thread.join()
 
 
 print("Server is starting...")

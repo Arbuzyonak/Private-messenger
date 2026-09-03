@@ -1,0 +1,10 @@
+# build outputs
+build/
+dist/
+*.spec
+
+# runtime databases (created next to wherever the app runs)
+*.db
+
+# python
+__pycache__/

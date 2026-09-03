@@ -58,6 +58,38 @@ class IdentityWindow(QDialog):
 
 
 
+class ServerWindow(QDialog):
+    def __init__(self):
+        super().__init__()
+
+        self.server = None
+
+    def create_server_window(self, default_server):
+        self.setWindowTitle("Connect to server")
+        self.server = default_server
+        layout = QVBoxLayout(self)
+
+        layout.addStretch()
+        layout.addWidget(QLabel("Enter the server IP address"))
+        self.input_box = QLineEdit()
+        self.input_box.setText(default_server)
+        layout.addWidget(self.input_box)
+
+        self.show()
+
+        self.input_box.returnPressed.connect(self.submit_server)
+
+
+    def submit_server(self):
+        text = self.input_box.text().strip()
+        if len(text) <= 0:
+            return
+
+        self.server = text
+        self.accept()
+
+
+
 def recv_exact(client_socket, size):
     data = b""
 
@@ -143,11 +175,12 @@ class Message:
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, username, user_id):
+    def __init__(self, username, user_id, server_address):
         super().__init__()
 
         self.username = username
         self.user_id = user_id
+        self.server_address = server_address
 
         self.setWindowTitle("Private messenger")
         self.resize(700,500)
@@ -225,11 +258,15 @@ class MainWindow(QMainWindow):
         self.HEADER = 64
         self.FORMAT = "utf-8"
         self.PORT = 5050
-        self.SERVER = "192.168.0.12"
+        self.SERVER = server_address
         self.ADDR = (self.SERVER, self.PORT)
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect(self.ADDR)
+        try:
+            self.client.connect(self.ADDR)
+        except OSError:
+            QMessageBox.critical(None, "Server", f"Could not connect to {self.SERVER}:{self.PORT}")
+            sys.exit()
         self.register_with_server()
 
         self.receiver_thread = ReceiverThread(self.client)
@@ -517,16 +554,22 @@ user_cursor.execute("""
     )
 """)
 
+user_cursor.execute("PRAGMA table_info(user_info)")
+columns = [row[1] for row in user_cursor.fetchall()]
+
+if "server" not in columns:
+    user_cursor.execute("ALTER TABLE user_info ADD COLUMN server TEXT")
+
 user_conn.commit()
 
 user_cursor.execute(
-    "SELECT user_id, username FROM user_info LIMIT 1"
+    "SELECT user_id, username, server FROM user_info LIMIT 1"
 )
 
 user = user_cursor.fetchone()
 
 if user:
-    user_id, username = user
+    user_id, username, saved_server = user
 else:
 
     identity_window = IdentityWindow()
@@ -535,12 +578,27 @@ else:
     if identity_window.exec() == QDialog.Accepted:
         username = identity_window.username
         user_id = identity_window.generate_uuid()
+        saved_server = None
 
         identity_window.save_user_id(username, user_id)
     else:
         sys.exit()
 
-window = MainWindow(username, user_id)
+server_window = ServerWindow()
+server_window.create_server_window(saved_server or "192.168.0.12")
+
+if server_window.exec() == QDialog.Accepted:
+    server_address = server_window.server
+
+    user_cursor.execute(
+        "UPDATE user_info SET server = ?",
+        (server_address,)
+    )
+    user_conn.commit()
+else:
+    sys.exit()
+
+window = MainWindow(username, user_id, server_address)
 window.show()
 
 app.exec()

@@ -1,0 +1,41 @@
+name: Build Windows executables
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyinstaller PySide6
+
+      - name: Build client
+        run: pyinstaller --onefile --windowed --name PrivateMessenger --noconfirm --distpath dist main.py
+
+      - name: Build server
+        run: pyinstaller --onefile --name MessengerServer --noconfirm --distpath dist server_side/server.py
+
+      - name: Upload executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-executables
+          path: |
+            dist/PrivateMessenger.exe
+            dist/MessengerServer.exe
+
+      - name: Publish GitHub Release with executables
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/PrivateMessenger.exe
+            dist/MessengerServer.exe
